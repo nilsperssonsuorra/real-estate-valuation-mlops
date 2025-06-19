@@ -1,6 +1,7 @@
 import pandas as pd
 import os
-import locale
+# The 'locale' import is no longer needed.
+from dateutil import parser
 
 # --- Configuration ---
 # Define paths relative to the script's location
@@ -11,68 +12,73 @@ PROCESSED_DATA_PATH = os.path.join(CURRENT_DIR, '..', 'data', 'processed', 'hemn
 def clean_location(df: pd.DataFrame) -> pd.DataFrame:
     """
     Standardizes the 'location' column.
-    - Splits 'Area, Municipality'
-    - Handles multi-part areas like 'Sunnersta/Graneberg' by taking only the first part ('Sunnersta').
-    - Converts the 'Area' part to title case (e.g., 'FYRISLUND' -> 'Fyrislund')
-    - Recombines the parts.
     """
     print("--- Cleaning 'location' column ---")
     if 'location' not in df.columns:
         print("WARNING: 'location' column not found. Skipping location cleaning.")
         return df
 
-    # Split the location into 'area' and 'municipality' parts
-    # n=1 ensures we only split on the first comma, expand=True creates new columns
     loc_parts = df['location'].str.split(',', n=1, expand=True)
     loc_parts.columns = ['area', 'municipality']
 
-    # Clean the 'area' part
-    # .str.split('/') -> Splits 'Sunnersta/Graneberg' into ['Sunnersta', 'Graneberg']
-    # .str.get(0)    -> Selects the first element, 'Sunnersta'
-    # .str.strip()   -> Removes leading/trailing whitespace
-    # .str.title()   -> Converts "FYRISLUND" to "Fyrislund" or "sunnersta" to "Sunnersta"
-    df['location_area'] = loc_parts['area'].str.split('/').str.get(0).str.strip().str.title() # <-- MODIFIED LINE
-
-    # Clean and store the municipality part
+    df['location_area'] = loc_parts['area'].str.split('/').str.get(0).str.strip().str.title()
     df['municipality'] = loc_parts['municipality'].str.strip()
-
-    # We can now drop the original 'location' column as it's been split and cleaned
     df.drop(columns=['location'], inplace=True)
     
     print("Location successfully split into 'location_area' and 'municipality'.")
-    print("Multi-part areas like 'Sunnersta/Graneberg' are simplified to the first area.")
     return df
+
+def parse_swedish_date(date_str):
+    """
+    Robustly parses a Swedish date string by MANUALLY translating month names.
+    This avoids any dependency on system locales, making it work on any machine.
+    """
+    if not isinstance(date_str, str):
+        return pd.NaT
+
+    original_date_str = date_str 
+    
+    month_map = {
+        'januari': 'January', 'jan.': 'January', 'jan': 'January',
+        'februari': 'February', 'feb.': 'February', 'feb': 'February',
+        'mars': 'March', 'mar.': 'March', 'mar': 'March',
+        'april': 'April', 'apr.': 'April', 'apr': 'April',
+        'maj': 'May', 'maj.': 'May',
+        'juni': 'June', 'jun.': 'June', 'jun': 'June',
+        'juli': 'July', 'jul.': 'July', 'jul': 'July',
+        'augusti': 'August', 'aug.': 'August', 'aug': 'August',
+        'september': 'September', 'sep.': 'September', 'sep': 'September',
+        'oktober': 'October', 'okt.': 'October', 'okt': 'October',
+        'november': 'November', 'nov.': 'November', 'nov': 'November',
+        'december': 'December', 'dec.': 'December', 'dec': 'December'
+    }
+
+    date_str_lower = date_str.lower()
+    
+    for swedish_month, english_month in month_map.items():
+        if swedish_month in date_str_lower:
+            date_str_lower = date_str_lower.replace(swedish_month, english_month)
+            break 
+
+    try:
+        return parser.parse(date_str_lower, dayfirst=True)
+    except Exception:
+        print(f"DEBUG: Failed to parse date string even after manual translation: '{original_date_str}'")
+        return pd.NaT
 
 def perform_data_cleaning_and_engineering(df: pd.DataFrame) -> pd.DataFrame:
     """
     Main function to orchestrate all cleaning and feature engineering steps.
     """
-    # --- Date Conversion ---
-    # To handle Swedish month names like 'december', we set the locale.
-    # This might require the language pack to be installed on your system.
-    # Common locales: 'sv_SE.UTF-8' on Linux/macOS, 'Swedish' on Windows.
-    print("\n--- Converting 'sold_date' to datetime objects ---")
-    try:
-        locale.setlocale(locale.LC_TIME, 'sv_SE.UTF-8')
-    except locale.Error:
-        try:
-            locale.setlocale(locale.LC_TIME, 'Swedish')
-        except locale.Error:
-            print("WARNING: Could not set locale to Swedish. Date parsing may fail for some months.")
-    
-    # Convert to datetime, coercing errors to NaT (Not a Time)
-    df['sold_date'] = pd.to_datetime(df['sold_date'], format='%d %B %Y', errors='coerce')
+    print("\n--- Converting 'sold_date' to datetime objects (locale-independent) ---")
+    df['sold_date'] = df['sold_date'].astype(str).apply(parse_swedish_date)
     print("'sold_date' converted.")
 
-    # --- Feature Engineering: Price per Square Meter ---
     print("\n--- Performing Feature Engineering ---")
     if 'final_price' in df.columns and 'living_area_m2' in df.columns:
-        # Calculate price per square meter, a very useful metric for analysis
         df['price_per_m2'] = (df['final_price'] / df['living_area_m2']).round(2)
         print("Created 'price_per_m2' column.")
 
-    # Reorder columns for better readability
-    # Put the new location columns at the front and engineered columns near their sources.
     desired_cols = [
         'street_address', 'location_area', 'municipality',
         'final_price', 'price_per_m2', 'price_change_percent',
@@ -81,7 +87,6 @@ def perform_data_cleaning_and_engineering(df: pd.DataFrame) -> pd.DataFrame:
         'url'
     ]
     
-    # Filter to only include columns that actually exist in the DataFrame
     existing_cols = [col for col in desired_cols if col in df.columns]
     df = df[existing_cols]
     print("\nColumns reordered for clarity.")
@@ -100,18 +105,21 @@ def analyze_data(df: pd.DataFrame):
     df.info()
 
     print("\n--- Descriptive Statistics for Numerical Columns ---")
-    # Use .to_string() to ensure all columns are displayed
+    # --- THIS IS THE FIX ---
+    # Removed the 'datetime_is_numeric' argument for compatibility with older pandas versions.
     print(df.describe().to_string())
+    # -----------------------
 
     print("\n--- Missing Value Counts ---")
     missing_values = df.isnull().sum()
-    print(missing_values[missing_values > 0])
+    if missing_values.sum() > 0:
+        print(missing_values[missing_values > 0])
+    else:
+        # This part will likely not be reached as other columns have missing values
+        print("No missing values found in the final dataset.")
     
-    # Let's also check the unique values in our new location_area column
     print("\n--- Top 10 Location Areas by Count ---")
     print(df['location_area'].value_counts().head(10).to_string())
-
-
     print("\n" + "="*50)
 
 
@@ -121,7 +129,6 @@ def main():
     """
     print(f"--- Starting Data Cleaning Process ---")
     
-    # --- Load Data ---
     try:
         print(f"Loading raw data from: '{RAW_DATA_PATH}'")
         df = pd.read_csv(RAW_DATA_PATH)
@@ -134,20 +141,15 @@ def main():
         print(f"ERROR: The raw data file is empty. No data to process.")
         return
 
-    # --- Clean Data ---
-    df_cleaned = clean_location(df.copy()) # Use a copy to avoid SettingWithCopyWarning
+    df_cleaned = clean_location(df.copy())
     df_processed = perform_data_cleaning_and_engineering(df_cleaned)
 
-    # --- Analyze Data ---
     analyze_data(df_processed)
 
-    # --- Save Data ---
     try:
-        # Ensure the 'processed' directory exists
         output_dir = os.path.dirname(PROCESSED_DATA_PATH)
         os.makedirs(output_dir, exist_ok=True)
         
-        # Save the cleaned DataFrame to a new CSV file
         df_processed.to_csv(PROCESSED_DATA_PATH, index=False, encoding='utf-8-sig')
         print(f"\n--- Success! ---")
         print(f"Processed data saved to: '{PROCESSED_DATA_PATH}'")
