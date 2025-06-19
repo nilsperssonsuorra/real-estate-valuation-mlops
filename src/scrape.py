@@ -3,6 +3,7 @@ import time
 import random
 from bs4 import BeautifulSoup
 import json
+import os
 
 # Selenium imports
 from selenium import webdriver
@@ -16,10 +17,12 @@ from selenium.common.exceptions import TimeoutException
 
 # --- Configuration ---
 BASE_URL = "https://www.hemnet.se/salda/bostader?item_types%5B%5D=villa&location_ids%5B%5D=946677"
-TOTAL_PAGES = 1
-OUTPUT_CSV_FILE = 'hemnet_sold_villas_final.csv'
+# Set a high page limit. The script will stop automatically when it finds old data.
+TOTAL_PAGES = 2
+OUTPUT_CSV_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw', 'hemnet_sold_villas_final.csv')
 
-# --- Parsing and Cleaning Functions ---
+
+# --- Parsing and Cleaning Functions (No changes needed here) ---
 
 def parse_from_next_data(soup):
     """
@@ -53,7 +56,8 @@ def parse_from_next_data(soup):
                 # --- Safely get other data using .get() ---
                 price_change = value.get('priceChange')
                 slug = value.get('slug')
-                url = "https://www.hemnet.se" + slug if slug else None
+                url = "https://www.hemnet.se" + slug if slug and slug.startswith('/') else "https://www.hemnet.se/" + slug if slug else None
+
 
                 prop_data = {
                     'street_address': value.get('streetAddress'),
@@ -79,6 +83,9 @@ def clean_dataframe(df):
     Cleans and processes the raw DataFrame columns into numeric types.
     Correctly handles various string formats from the JSON data.
     """
+    if df.empty:
+        return df
+
     if 'final_price_str' in df.columns:
         df['final_price'] = pd.to_numeric(df['final_price_str'].astype(str).str.extract(r'(\d[\d\s]*\d)')[0].str.replace(r'\s+', '', regex=True), errors='coerce')
     
@@ -102,8 +109,27 @@ def clean_dataframe(df):
 # --- Main Scraper Logic ---
 
 def main():
-    all_properties_data = []
-    print("--- Setting up Selenium WebDriver ---")
+    existing_df = pd.DataFrame()
+    existing_urls = set()
+    if os.path.exists(OUTPUT_CSV_FILE):
+        print(f"--- Found existing data file: '{OUTPUT_CSV_FILE}' ---")
+        try:
+            existing_df = pd.read_csv(OUTPUT_CSV_FILE)
+            if 'url' in existing_df.columns:
+                # Create a set of URLs for fast O(1) average time complexity checks.
+                existing_urls = set(existing_df['url'].dropna())
+                print(f"Loaded {len(existing_urls)} unique listings to check against.")
+            else:
+                print("WARNING: 'url' column not found in existing CSV. Will scrape all pages.")
+        except pd.errors.EmptyDataError:
+            print("WARNING: Existing CSV file is empty. Starting fresh.")
+        except Exception as e:
+            print(f"ERROR: Could not read existing CSV file. Error: {e}. Starting fresh.")
+
+    # This list will only hold newly scraped properties
+    newly_scraped_data = []
+    
+    print("\n--- Setting up Selenium WebDriver ---")
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--window-size=1920,1080")
@@ -120,8 +146,12 @@ def main():
     
     try:
         print("--- Starting Hemnet Scraper ---")
+        stop_scraping = False # Flag to stop the main loop
         
         for page_num in range(1, TOTAL_PAGES + 1):
+            if stop_scraping:
+                break # Exit the loop if the flag is set
+
             page_url = f"{BASE_URL}&page={page_num}"
             print(f"Scraping page {page_num} of {TOTAL_PAGES} from {page_url}")
             
@@ -131,45 +161,75 @@ def main():
                 WebDriverWait(driver, 20).until(
                     EC.presence_of_element_located((By.ID, "__NEXT_DATA__"))
                 )
-                time.sleep(random.uniform(0.5, 1.5)) # Small delay for stability
+                time.sleep(random.uniform(0.5, 1.5))
             except TimeoutException:
-                print(f"Could not find __NEXT_DATA__ on page {page_num}. This might be the final page.")
+                print(f"  > Timed out waiting for page content on page {page_num}. This might be the final page.")
                 break
 
             soup = BeautifulSoup(driver.page_source, 'html.parser')
             page_data = parse_from_next_data(soup)
             
             if not page_data:
-                print(f"  > No listings found in __NEXT_DATA__ on page {page_num}. Ending scrape.")
+                print(f"  > No listings found on page {page_num}. Ending scrape.")
                 break
-                
-            all_properties_data.extend(page_data)
-            print(f"  > Found and parsed {len(page_data)} listings on this page.")
+            
+            new_listings_on_page = []
+            for prop_data in page_data:
+                if prop_data['url'] in existing_urls:
+                    # We found a property we already have. Stop scraping.
+                    print(f"  > Found previously saved listing: {prop_data['url']}. Halting scrape.")
+                    stop_scraping = True
+                    break # Exit this inner loop
+                else:
+                    new_listings_on_page.append(prop_data)
+            
+            if new_listings_on_page:
+                newly_scraped_data.extend(new_listings_on_page)
+                print(f"  > Found and added {len(new_listings_on_page)} new listings from this page.")
+
             time.sleep(random.uniform(1.0, 2.0))
 
     finally:
         driver.quit()
         print("\n--- Scraping process completed ---")
 
-    if not all_properties_data:
-        print("No data was scraped. Please check for website changes or anti-bot measures.")
+    if not newly_scraped_data:
+        print("No new data was scraped. The existing data is up-to-date.")
         return
 
-    print(f"Total properties scraped: {len(all_properties_data)}")
-    df = pd.DataFrame(all_properties_data)
-    df_clean = clean_dataframe(df)
+    print(f"Total new properties scraped: {len(newly_scraped_data)}")
+    new_df = pd.DataFrame(newly_scraped_data)
+    new_df_clean = clean_dataframe(new_df)
 
+    print("--- Merging new data with existing data ---")
+    combined_df = pd.concat([new_df_clean, existing_df], ignore_index=True)
+
+    # Define the desired final column order
     final_columns = [
         'street_address', 'location', 'final_price', 'price_change_percent',
         'sold_date', 'living_area_m2', 'non_living_area_m2', 'rooms', 'plot_area_m2', 'url'
     ]
-    existing_columns = [col for col in final_columns if col in df_clean.columns]
+    # Filter the combined DataFrame to only include columns that actually exist
+    existing_final_columns = [col for col in final_columns if col in combined_df.columns]
 
-    df_clean.to_csv(OUTPUT_CSV_FILE, index=False, columns=existing_columns, encoding='utf-8-sig')
+    # Drop duplicates one last time to be safe, keeping the newest entry
+    combined_df.drop_duplicates(subset=['url'], keep='first', inplace=True)
+    
+    # Sort by sold_date if possible for a clean file, you might need to convert it to datetime first
+    # This is an optional but nice step.
+    try:
+        combined_df['sold_date_dt'] = pd.to_datetime(combined_df['sold_date'], format='%d %B %Y', errors='coerce')
+        combined_df.sort_values(by='sold_date_dt', ascending=False, inplace=True)
+        combined_df.drop(columns=['sold_date_dt'], inplace=True)
+    except Exception as e:
+        print(f"Could not sort by date: {e}. Data will be unsorted.")
 
-    print(f"\nSuccessfully saved data to '{OUTPUT_CSV_FILE}'")
-    print("\nData preview:")
-    print(df_clean[existing_columns].head())
+
+    combined_df.to_csv(OUTPUT_CSV_FILE, index=False, columns=existing_final_columns, encoding='utf-8-sig')
+
+    print(f"\nSuccessfully saved {len(combined_df)} total listings to '{OUTPUT_CSV_FILE}'")
+    print("\nPreview of newly added data:")
+    print(new_df_clean[existing_final_columns].head())
 
 
 if __name__ == '__main__':
