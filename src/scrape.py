@@ -18,7 +18,7 @@ from selenium.common.exceptions import TimeoutException
 # --- Configuration ---
 BASE_URL = "https://www.hemnet.se/salda/bostader?item_types%5B%5D=villa&location_ids%5B%5D=946677"
 # Set a high page limit. The script will stop automatically when it finds old data.
-TOTAL_PAGES = 2
+TOTAL_PAGES = 500
 OUTPUT_CSV_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw', 'hemnet_sold_villas_final.csv')
 
 
