@@ -69,12 +69,14 @@ MODEL_FILE_PREFIX = "xgb_model"
 MODEL_COLUMNS_FILE = "model_columns.joblib"
 LOCATION_OPTIONS_FILE = "location_area_columns.json"
 LOCATION_PRICE_MAP_FILE = "location_price_map.json"
+SHAP_EXPLAINER_FILE = "shap_explainer.joblib"
 
 # --- Full paths to model artifacts ---
 # These are constructed from the directories and filenames defined above.
 MODEL_COLUMNS_PATH = MODELS_DIR / MODEL_COLUMNS_FILE
 LOCATION_OPTIONS_PATH = MODELS_DIR / LOCATION_OPTIONS_FILE
 LOCATION_PRICE_MAP_PATH = MODELS_DIR / LOCATION_PRICE_MAP_FILE
+SHAP_EXPLAINER_PATH = MODELS_DIR / SHAP_EXPLAINER_FILE
 
 # Generate the full paths for each quantile model file dynamically.
 # This makes it easy to add/remove quantiles by just changing QUANTILES_AND_NAMES.
