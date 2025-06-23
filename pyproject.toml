@@ -1,0 +1,11 @@
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "src"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "if __name__ == .__main__.:",
+    "pragma: no cover",            # Allows for explicit `# pragma: no cover` comments
+]
