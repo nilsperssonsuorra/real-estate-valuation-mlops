@@ -1,13 +1,7 @@
 import pandas as pd
 import os
-# The 'locale' import is no longer needed.
 from dateutil import parser
-
-# --- Configuration ---
-# Define paths relative to the script's location
-CURRENT_DIR = os.path.dirname(__file__)
-RAW_DATA_PATH = os.path.join(CURRENT_DIR, '..', 'data', 'raw', 'hemnet_sold_villas_final.csv')
-PROCESSED_DATA_PATH = os.path.join(CURRENT_DIR, '..', 'data', 'processed', 'hemnet_sold_villas_processed.csv')
+import config  # Import the new config file
 
 def clean_location(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -105,17 +99,13 @@ def analyze_data(df: pd.DataFrame):
     df.info()
 
     print("\n--- Descriptive Statistics for Numerical Columns ---")
-    # --- THIS IS THE FIX ---
-    # Removed the 'datetime_is_numeric' argument for compatibility with older pandas versions.
     print(df.describe().to_string())
-    # -----------------------
 
     print("\n--- Missing Value Counts ---")
     missing_values = df.isnull().sum()
     if missing_values.sum() > 0:
         print(missing_values[missing_values > 0])
     else:
-        # This part will likely not be reached as other columns have missing values
         print("No missing values found in the final dataset.")
     
     print("\n--- Top 10 Location Areas by Count ---")
@@ -130,11 +120,11 @@ def main():
     print(f"--- Starting Data Cleaning Process ---")
     
     try:
-        print(f"Loading raw data from: '{RAW_DATA_PATH}'")
-        df = pd.read_csv(RAW_DATA_PATH)
+        print(f"Loading raw data from: '{config.RAW_DATA_PATH}'")
+        df = pd.read_csv(config.RAW_DATA_PATH)
         print(f"Successfully loaded {len(df)} rows.")
     except FileNotFoundError:
-        print(f"ERROR: Raw data file not found at '{RAW_DATA_PATH}'.")
+        print(f"ERROR: Raw data file not found at '{config.RAW_DATA_PATH}'.")
         print("Please run the scraper script (src/scrape.py) first.")
         return
     except pd.errors.EmptyDataError:
@@ -147,12 +137,11 @@ def main():
     analyze_data(df_processed)
 
     try:
-        output_dir = os.path.dirname(PROCESSED_DATA_PATH)
-        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(config.PROCESSED_DATA_DIR, exist_ok=True)
         
-        df_processed.to_csv(PROCESSED_DATA_PATH, index=False, encoding='utf-8-sig')
+        df_processed.to_csv(config.PROCESSED_DATA_PATH, index=False, encoding='utf-8-sig')
         print(f"\n--- Success! ---")
-        print(f"Processed data saved to: '{PROCESSED_DATA_PATH}'")
+        print(f"Processed data saved to: '{config.PROCESSED_DATA_PATH}'")
         
         print("\n--- Preview of Processed Data ---")
         print(df_processed.head().to_string())

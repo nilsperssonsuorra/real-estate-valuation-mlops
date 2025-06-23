@@ -2,10 +2,10 @@
 import streamlit as st
 import pandas as pd
 import joblib
-import os
 import json
 import numpy as np
 from datetime import datetime
+import config  # Import the new config file
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -13,27 +13,6 @@ st.set_page_config(
     page_icon="🏠",
     layout="centered"
 )
-
-# --- Path Configuration (UPDATED for train3.py) ---
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_DIR = os.path.join(APP_DIR, '..', 'models')
-
-# Define paths to all required model and artifact files.
-MODEL_PATHS = {
-    'lower': os.path.join(MODEL_DIR, 'xgb_model_q5.joblib'),    # Predicts the 5th percentile price
-    'median': os.path.join(MODEL_DIR, 'xgb_model_q50.joblib'),  # Predicts the 50th percentile (median) price
-    'upper': os.path.join(MODEL_DIR, 'xgb_model_q95.joblib')    # Predicts the 95th percentile price
-}
-# Path to the list of feature columns the model was trained on. Saved with joblib.
-COLUMNS_PATH = os.path.join(MODEL_DIR, 'model_columns.joblib')
-# Path to the list of valid location areas for the dropdown. Saved as a standard JSON file.
-LOCATION_COLUMNS_PATH = os.path.join(MODEL_DIR, 'location_area_columns.json')
-# NEW: Path to the target-encoded price map for locations.
-LOCATION_PRICE_MAP_PATH = os.path.join(MODEL_DIR, 'location_price_map.json')
-
-# Define the epoch for date feature engineering, must match train3.py
-EPOCH = pd.Timestamp("2000-01-01")
-
 
 # --- Helper Functions ---
 
@@ -44,13 +23,14 @@ def load_models_and_columns():
     Uses @st.cache_resource to ensure these large objects are loaded only once.
     """
     try:
-        models = {name: joblib.load(path) for name, path in MODEL_PATHS.items()}
-        model_columns = joblib.load(COLUMNS_PATH)
+        # Use the paths from the config file
+        models = {name: joblib.load(path) for name, path in config.MODEL_PATHS.items()}
+        model_columns = joblib.load(config.MODEL_COLUMNS_PATH)
         return models, model_columns
     except FileNotFoundError as e:
         st.error(
             "Ett fel uppstod: En modell- eller kolumnfil kunde inte hittas. "
-            f"Kontrollera att filerna finns i mappen '{MODEL_DIR}'. "
+            f"Kontrollera att filerna finns i mappen '{config.MODELS_DIR}'. "
             "Se till att du har kört den senaste versionen av 'src/train.py' för att skapa alla nödvändiga filer. "
             f"Specifikt fel: {e}"
         )
@@ -65,17 +45,18 @@ def load_location_options():
     Loads the list of unique 'location_area' values from its JSON file.
     """
     try:
-        with open(LOCATION_COLUMNS_PATH, 'r', encoding='utf-8') as f:
+        # Use the path from the config file
+        with open(config.LOCATION_OPTIONS_PATH, 'r', encoding='utf-8') as f:
             locations = json.load(f)
         return locations
     except FileNotFoundError:
         st.error(
-            f"Ett fel uppstod: Filen med områden ('{os.path.basename(LOCATION_COLUMNS_PATH)}') hittades inte. "
+            f"Ett fel uppstod: Filen med områden ('{config.LOCATION_OPTIONS_FILE}') hittades inte. "
             "Kör 'src/train.py' för att skapa den."
         )
         return []
     except json.JSONDecodeError:
-        st.error(f"Filen '{os.path.basename(LOCATION_COLUMNS_PATH)}' är inte en giltig JSON-fil.")
+        st.error(f"Filen '{config.LOCATION_OPTIONS_FILE}' är inte en giltig JSON-fil.")
         return []
 
 @st.cache_data
@@ -85,7 +66,8 @@ def load_location_price_map():
     Also calculates a global median to use as a fallback for any unseen locations.
     """
     try:
-        with open(LOCATION_PRICE_MAP_PATH, 'r', encoding='utf-8') as f:
+        # Use the path from the config file
+        with open(config.LOCATION_PRICE_MAP_PATH, 'r', encoding='utf-8') as f:
             price_map_dict = json.load(f)
         
         # Convert to a Pandas Series for easier mapping
@@ -96,8 +78,8 @@ def load_location_price_map():
         return price_map, fallback_price
     except FileNotFoundError:
         st.error(
-            f"Ett fel uppstod: Filen med områdespriser ('{os.path.basename(LOCATION_PRICE_MAP_PATH)}') hittades inte. "
-            "Kör 'src/train.py' (version 3) för att skapa den."
+            f"Ett fel uppstod: Filen med områdespriser ('{config.LOCATION_PRICE_MAP_FILE}') hittades inte. "
+            "Kör 'src/train.py' för att skapa den."
         )
         return None, None
     except Exception as e:
@@ -119,7 +101,8 @@ def make_prediction(input_data: dict, models: dict, model_columns: list, price_m
     # Basic features
     df['total_area_m2'] = df['living_area_m2'] + df['non_living_area_m2']
     df['plot_to_living_ratio'] = df['plot_area_m2'] / (df['living_area_m2'] + 1e-6)
-    df['sale_days_since_epoch'] = (df['sold_date'] - EPOCH).dt.days
+    # Use the epoch from the config file
+    df['sale_days_since_epoch'] = (df['sold_date'] - config.FEATURE_ENGINEERING_EPOCH).dt.days
 
     # Log-transformed features
     df['log_living_area'] = np.log1p(df['living_area_m2'])
