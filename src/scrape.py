@@ -1,9 +1,11 @@
+# src/scrape.py
 import pandas as pd
 import time
 import random
 from bs4 import BeautifulSoup
 import json
 import os
+import config  # Import the new config file
 
 # Selenium imports
 from selenium import webdriver
@@ -14,13 +16,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException
-
-# --- Configuration ---
-BASE_URL = "https://www.hemnet.se/salda/bostader?item_types%5B%5D=villa&location_ids%5B%5D=946677"
-# Set a high page limit. The script will stop automatically when it finds old data.
-TOTAL_PAGES = 2
-OUTPUT_CSV_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw', 'hemnet_sold_villas_final.csv')
-
 
 # --- Parsing and Cleaning Functions (No changes needed here) ---
 
@@ -108,15 +103,19 @@ def clean_dataframe(df):
 
 # --- Main Scraper Logic ---
 
-def main():
+def run_scraper():
+    """
+    Main function to orchestrate the scraping process. It checks for existing
+    data, scrapes new listings from Hemnet until it finds duplicates,
+    cleans the new data, and merges it with the existing data before saving.
+    """
     existing_df = pd.DataFrame()
     existing_urls = set()
-    if os.path.exists(OUTPUT_CSV_FILE):
-        print(f"--- Found existing data file: '{OUTPUT_CSV_FILE}' ---")
+    if os.path.exists(config.RAW_DATA_PATH):
+        print(f"--- Found existing data file: '{config.RAW_DATA_PATH}' ---")
         try:
-            existing_df = pd.read_csv(OUTPUT_CSV_FILE)
+            existing_df = pd.read_csv(config.RAW_DATA_PATH)
             if 'url' in existing_df.columns:
-                # Create a set of URLs for fast O(1) average time complexity checks.
                 existing_urls = set(existing_df['url'].dropna())
                 print(f"Loaded {len(existing_urls)} unique listings to check against.")
             else:
@@ -126,7 +125,6 @@ def main():
         except Exception as e:
             print(f"ERROR: Could not read existing CSV file. Error: {e}. Starting fresh.")
 
-    # This list will only hold newly scraped properties
     newly_scraped_data = []
     
     print("\n--- Setting up Selenium WebDriver ---")
@@ -146,14 +144,14 @@ def main():
     
     try:
         print("--- Starting Hemnet Scraper ---")
-        stop_scraping = False # Flag to stop the main loop
+        stop_scraping = False
         
-        for page_num in range(1, TOTAL_PAGES + 1):
+        for page_num in range(1, config.SCRAPER_MAX_PAGES + 1):
             if stop_scraping:
-                break # Exit the loop if the flag is set
+                break
 
-            page_url = f"{BASE_URL}&page={page_num}"
-            print(f"Scraping page {page_num} of {TOTAL_PAGES} from {page_url}")
+            page_url = f"{config.HEMNET_BASE_URL}&page={page_num}"
+            print(f"Scraping page {page_num} of {config.SCRAPER_MAX_PAGES} from {page_url}")
             
             driver.get(page_url)
 
@@ -176,10 +174,9 @@ def main():
             new_listings_on_page = []
             for prop_data in page_data:
                 if prop_data['url'] in existing_urls:
-                    # We found a property we already have. Stop scraping.
                     print(f"  > Found previously saved listing: {prop_data['url']}. Halting scrape.")
                     stop_scraping = True
-                    break # Exit this inner loop
+                    break
                 else:
                     new_listings_on_page.append(prop_data)
             
@@ -204,19 +201,14 @@ def main():
     print("--- Merging new data with existing data ---")
     combined_df = pd.concat([new_df_clean, existing_df], ignore_index=True)
 
-    # Define the desired final column order
     final_columns = [
         'street_address', 'location', 'final_price', 'price_change_percent',
         'sold_date', 'living_area_m2', 'non_living_area_m2', 'rooms', 'plot_area_m2', 'url'
     ]
-    # Filter the combined DataFrame to only include columns that actually exist
     existing_final_columns = [col for col in final_columns if col in combined_df.columns]
 
-    # Drop duplicates one last time to be safe, keeping the newest entry
     combined_df.drop_duplicates(subset=['url'], keep='first', inplace=True)
     
-    # Sort by sold_date if possible for a clean file, you might need to convert it to datetime first
-    # This is an optional but nice step.
     try:
         combined_df['sold_date_dt'] = pd.to_datetime(combined_df['sold_date'], format='%d %B %Y', errors='coerce')
         combined_df.sort_values(by='sold_date_dt', ascending=False, inplace=True)
@@ -224,13 +216,12 @@ def main():
     except Exception as e:
         print(f"Could not sort by date: {e}. Data will be unsorted.")
 
+    combined_df.to_csv(config.RAW_DATA_PATH, index=False, columns=existing_final_columns, encoding='utf-8-sig')
 
-    combined_df.to_csv(OUTPUT_CSV_FILE, index=False, columns=existing_final_columns, encoding='utf-8-sig')
-
-    print(f"\nSuccessfully saved {len(combined_df)} total listings to '{OUTPUT_CSV_FILE}'")
+    print(f"\nSuccessfully saved {len(combined_df)} total listings to '{config.RAW_DATA_PATH}'")
     print("\nPreview of newly added data:")
     print(new_df_clean[existing_final_columns].head())
 
 
 if __name__ == '__main__':
-    main()
+    run_scraper()
