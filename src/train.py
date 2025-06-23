@@ -7,7 +7,8 @@ import json
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error
 import numpy as np
-import config  # Import the new config file
+import config 
+import shap
 
 def run_training_pipeline():
     """
@@ -139,6 +140,14 @@ def run_training_pipeline():
         joblib.dump(model, model_path)
         print(f"  > Model saved to '{model_path.name}'")
         models[name] = model
+
+    # --- CREATE AND SAVE SHAP EXPLAINER ---
+    print("\n--- Creating and saving SHAP explainer ---")
+    # We create the explainer based on the median model and the training data
+    median_model = models['median']
+    explainer = shap.TreeExplainer(median_model)
+    joblib.dump(explainer, config.SHAP_EXPLAINER_PATH)
+    print(f"  > SHAP explainer saved to '{config.SHAP_EXPLAINER_FILE}'")
 
     # --- 5. Evaluate Models on Test Set ---
     print("\n--- Evaluating Model Performance on Test Set ---")

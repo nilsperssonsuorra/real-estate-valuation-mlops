@@ -3,7 +3,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from unittest.mock import patch, MagicMock, mock_open
-from datetime import date
+from datetime import date, datetime
 import json
 
 # Import the functions to test from the Streamlit app
@@ -61,7 +61,7 @@ def test_make_prediction(sample_input_data, mock_model_columns, mock_price_map):
     fallback_price = 45000.0
 
     # --- Run the function ---
-    predictions = make_prediction(
+    predictions, df_aligned = make_prediction(
         sample_input_data, mock_models, mock_model_columns, mock_price_map, fallback_price
     )
 
@@ -70,7 +70,8 @@ def test_make_prediction(sample_input_data, mock_model_columns, mock_price_map):
     assert predictions['lower'] == 4800000
     assert predictions['median'] == 5000000
     assert predictions['upper'] == 5200000
-    df_aligned = mock_model_median.predict.call_args.args[0]
+    df_passed_to_predict = mock_model_median.predict.call_args.args[0]
+    pd.testing.assert_frame_equal(df_aligned, df_passed_to_predict)
     assert isinstance(df_aligned, pd.DataFrame)
     assert len(df_aligned) == 1
     assert list(df_aligned.columns) == mock_model_columns
@@ -89,36 +90,40 @@ def test_make_prediction_unseen_location(mock_model_columns, mock_price_map):
         'sale_date': date(2023, 10, 27)
     }
     fallback_price = 45000.0
-    make_prediction(unseen_input_data, mock_models, mock_model_columns, mock_price_map, fallback_price)
-    df_passed_to_model = mock_model.predict.call_args.args[0]
-    assert df_passed_to_model['location_median_price_per_m2'].iloc[0] == fallback_price
+    _predictions, df_aligned = make_prediction(
+        unseen_input_data, mock_models, mock_model_columns, mock_price_map, fallback_price
+    )
+    assert df_aligned['location_median_price_per_m2'].iloc[0] == fallback_price
 
 @patch('app.st')
 @patch('app.joblib.load')
 def test_load_models_and_columns_success(mock_joblib_load, mock_st):
-    mock_joblib_load.side_effect = ["model_lower", "model_median", "model_upper", "columns_list"]
-    models, columns = load_models_and_columns.__wrapped__()
-    assert mock_joblib_load.call_count == 4
+    mock_joblib_load.side_effect = ["model_lower", "model_median", "model_upper", "columns_list", "explainer_obj"]
+    models, columns, explainer = load_models_and_columns.__wrapped__()
+    assert mock_joblib_load.call_count == 5
     assert 'median' in models
     assert columns == "columns_list"
+    assert explainer == "explainer_obj"
     mock_st.error.assert_not_called()
 
 @patch('app.st')
 @patch('app.joblib.load', side_effect=FileNotFoundError("File not found!"))
 def test_load_models_and_columns_file_not_found(mock_joblib_load, mock_st):
-    models, columns = load_models_and_columns.__wrapped__()
+    models, columns, explainer = load_models_and_columns.__wrapped__()
     assert models is None
     assert columns is None
+    assert explainer is None
     mock_st.error.assert_called_once()
-    assert "En modell- eller kolumnfil kunde inte hittas" in mock_st.error.call_args[0][0]
+    assert "En modell-, kolumn- eller SHAP-fil kunde inte hittas" in mock_st.error.call_args[0][0]
 
 @patch('app.st')
 @patch('app.joblib.load', side_effect=Exception("Unexpected error!"))
 def test_load_models_and_columns_generic_exception(mock_joblib_load, mock_st):
     """Tests the failure case with a generic exception."""
-    models, columns = load_models_and_columns.__wrapped__()
+    models, columns, explainer = load_models_and_columns.__wrapped__()
     assert models is None
     assert columns is None
+    assert explainer is None
     mock_st.error.assert_called_once()
     assert "Ett oväntat fel uppstod" in mock_st.error.call_args[0][0]
 
@@ -182,34 +187,110 @@ def test_load_location_price_map_generic_exception(mock_file_open, mock_st):
 @patch('app.load_location_options')
 @patch('app.load_models_and_columns')
 def test_main_success_flow(mock_load_models, mock_load_loc_options, mock_load_price_map, mock_make_prediction, mock_st):
-    """Tests the main UI flow on a successful run."""
-    mock_load_models.return_value = ("mock_models", "mock_cols")
-    mock_load_loc_options.return_value = ["Uppsala_Centrum", "Other"]
-    mock_load_price_map.return_value = (pd.Series(dtype=float), 45000.0)
-    mock_make_prediction.return_value = {'lower': 1, 'median': 2, 'upper': 3}
+    """Tests the main UI flow on a successful run, covering all SHAP logic."""
+    # --- Arrange Mocks ---
+    # Define realistic columns and SHAP values to test all aggregation paths
+    test_model_columns = [
+        'living_area_m2', 'log_living_area', 'plot_area_m2', 'log_plot_area',
+        'rooms', 'non_living_area_m2', 'sale_days_since_epoch',
+        'total_area_m2', 'plot_to_living_ratio',
+        'location_median_price_per_m2', 'location_area_Uppsala_Centrum'
+    ]
+    # Use significant positive and negative values to test both sides of SHAP display
+    test_shap_values = np.array([
+        50000, 25000, -30000, -15000, 40000, -10000, 80000,
+        5000, -2000, 150000, 75000
+    ])
 
-    # FIX: Create explicit mocks for the columns so we can check calls on them.
-    mock_col1, mock_col2, mock_col3 = MagicMock(), MagicMock(), MagicMock()
-    mock_st.columns.return_value = (mock_col1, mock_col2, mock_col3)
+    mock_explainer = MagicMock()
+    mock_explainer.expected_value = [3000000]
+    mock_explainer.shap_values.return_value = [test_shap_values]
+    mock_load_models.return_value = ({"mock": "models"}, test_model_columns, mock_explainer)
+
+    mock_load_loc_options.return_value = ["Uppsala_Centrum", "Other"]
+    mock_load_price_map.return_value = (pd.Series(dtype='float64'), 45000.0)
+
+    mock_df_aligned = pd.DataFrame([np.zeros(len(test_model_columns))], columns=test_model_columns)
+    mock_make_prediction.return_value = ({'lower': 4800000, 'median': 5000000, 'upper': 5200000}, mock_df_aligned)
+
+    mock_cols_metrics = (MagicMock(), MagicMock(), MagicMock())
+    mock_cols_expander = (MagicMock(), MagicMock())
+    mock_st.columns.side_effect = [mock_cols_metrics, mock_cols_expander]
     mock_st.sidebar.button.return_value = True
+
+    # --- Act ---
+    main()
+
+    # --- Assert ---
+    mock_make_prediction.assert_called_once()
+    mock_st.expander.assert_called_once()
+    mock_explainer.shap_values.assert_called_once_with(mock_df_aligned)
+    # Both positive and negative factors were found, so *.info should not be called.
+    mock_cols_expander[0].info.assert_not_called()
+    mock_cols_expander[1].info.assert_not_called()
+    # Check that both expander columns received markdown content
+    assert mock_cols_expander[0].markdown.called
+    assert mock_cols_expander[1].markdown.called
+
+@patch('app.st')
+@patch('app.make_prediction')
+@patch('app.load_location_price_map')
+@patch('app.load_location_options')
+@patch('app.load_models_and_columns')
+def test_main_shap_display_no_positives(mock_load_models, mock_load_loc_options, mock_load_price_map, mock_make_prediction, mock_st):
+    """Tests the SHAP display when there are no significant positive factors."""
+    test_model_columns = ['rooms']
+    # All SHAP values are negative
+    test_shap_values = np.array([-50000])
+
+    mock_explainer = MagicMock()
+    mock_explainer.expected_value = [3000000]
+    mock_explainer.shap_values.return_value = [test_shap_values]
+    mock_load_models.return_value = ({"mock": "models"}, test_model_columns, mock_explainer)
+    mock_load_loc_options.return_value = ["Other"]
+    mock_load_price_map.return_value = (pd.Series(dtype='float64'), 45000.0)
+    mock_df_aligned = pd.DataFrame([[0]], columns=test_model_columns)
+    mock_make_prediction.return_value = ({'lower': 1, 'median': 2, 'upper': 3}, mock_df_aligned)
+    mock_st.sidebar.button.return_value = True
+
+    mock_cols_metrics = (MagicMock(), MagicMock(), MagicMock())
+    mock_cols_expander = (MagicMock(), MagicMock())
+    mock_st.columns.side_effect = [mock_cols_metrics, mock_cols_expander]
 
     main()
 
-    # Assertions
-    mock_load_models.assert_called_once()
-    mock_load_loc_options.assert_called_once()
-    mock_load_price_map.assert_called_once()
-    mock_st.sidebar.button.assert_called_once()
-    mock_make_prediction.assert_called_once()
-
-    # FIX: Assert that `metric` was called on each individual column mock.
-    mock_col1.metric.assert_called_once()
-    mock_col2.metric.assert_called_once()
-    mock_col3.metric.assert_called_once()
-
+    mock_cols_expander[0].info.assert_called_once_with("Inga betydande faktorer höjde priset.", icon="ℹ️")
 
 @patch('app.st')
-@patch('app.load_models_and_columns', return_value=(None, None))
+@patch('app.make_prediction')
+@patch('app.load_location_price_map')
+@patch('app.load_location_options')
+@patch('app.load_models_and_columns')
+def test_main_shap_display_no_negatives(mock_load_models, mock_load_loc_options, mock_load_price_map, mock_make_prediction, mock_st):
+    """Tests the SHAP display when there are no significant negative factors."""
+    test_model_columns = ['rooms']
+    test_shap_values = np.array([50000])
+
+    mock_explainer = MagicMock()
+    mock_explainer.expected_value = [3000000]
+    mock_explainer.shap_values.return_value = [test_shap_values]
+    mock_load_models.return_value = ({"mock": "models"}, test_model_columns, mock_explainer)
+    mock_load_loc_options.return_value = ["Other"]
+    mock_load_price_map.return_value = (pd.Series(dtype='float64'), 45000.0)
+    mock_df_aligned = pd.DataFrame([[0]], columns=test_model_columns)
+    mock_make_prediction.return_value = ({'lower': 1, 'median': 2, 'upper': 3}, mock_df_aligned)
+    mock_st.sidebar.button.return_value = True
+
+    mock_cols_metrics = (MagicMock(), MagicMock(), MagicMock())
+    mock_cols_expander = (MagicMock(), MagicMock())
+    mock_st.columns.side_effect = [mock_cols_metrics, mock_cols_expander]
+
+    main()
+
+    mock_cols_expander[1].info.assert_called_once_with("Inga betydande faktorer sänkte priset.", icon="ℹ️")
+
+@patch('app.st')
+@patch('app.load_models_and_columns', return_value=(None, None, None))
 @patch('app.load_location_options', return_value=[])
 @patch('app.load_location_price_map', return_value=(None, None))
 def test_main_load_failure_flow(mock_load_price_map, mock_load_loc_options, mock_load_models, mock_st):
@@ -222,7 +303,7 @@ def test_main_load_failure_flow(mock_load_price_map, mock_load_loc_options, mock
 
 
 @patch('app.st')
-@patch('app.load_models_and_columns', return_value=(True, True))
+@patch('app.load_models_and_columns', return_value=(True, True, True))
 @patch('app.load_location_price_map', return_value=(True, True))
 @patch('app.load_location_options')
 def test_main_default_location_index_not_found(mock_load_loc_options, mock_load_price_map, mock_load_models, mock_st):
