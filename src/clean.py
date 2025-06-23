@@ -1,3 +1,4 @@
+# src/clean.py
 import pandas as pd
 import os
 from dateutil import parser
@@ -113,9 +114,11 @@ def analyze_data(df: pd.DataFrame):
     print("\n" + "="*50)
 
 
-def main():
+def run_cleaning_pipeline():
     """
-    Main function to load, clean, analyze, and save the data.
+    Loads raw data, runs the full cleaning and processing pipeline,
+    analyzes the result, and saves the cleaned data to a new CSV file.
+    This is the main entry point for the cleaning process.
     """
     print(f"--- Starting Data Cleaning Process ---")
     
@@ -151,4 +154,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    run_cleaning_pipeline()

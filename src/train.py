@@ -9,10 +9,12 @@ from sklearn.metrics import mean_absolute_error
 import numpy as np
 import config  # Import the new config file
 
-def train_model():
+def run_training_pipeline():
     """
-    Loads data, engineers basic and advanced features (including target encoding
-    and log transforms), trains XGBoost quantile models, and saves all artifacts.
+    Loads processed data, engineers features, splits the data, trains
+    multiple XGBoost quantile regression models, evaluates their performance,
+    and saves all necessary artifacts (models, column lists, data maps)
+    to the 'models' directory for later use by the prediction app.
     """
     print("--- Starting Model Training ---")
 
@@ -158,4 +160,4 @@ def train_model():
     print("\n--- Training complete! All artifacts saved to 'models/' directory. ---")
     
 if __name__ == '__main__':
-    train_model()
+    run_training_pipeline()

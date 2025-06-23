@@ -1,3 +1,4 @@
+# src/scrape.py
 import pandas as pd
 import time
 import random
@@ -102,7 +103,12 @@ def clean_dataframe(df):
 
 # --- Main Scraper Logic ---
 
-def main():
+def run_scraper():
+    """
+    Main function to orchestrate the scraping process. It checks for existing
+    data, scrapes new listings from Hemnet until it finds duplicates,
+    cleans the new data, and merges it with the existing data before saving.
+    """
     existing_df = pd.DataFrame()
     existing_urls = set()
     if os.path.exists(config.RAW_DATA_PATH):
@@ -218,4 +224,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    run_scraper()
