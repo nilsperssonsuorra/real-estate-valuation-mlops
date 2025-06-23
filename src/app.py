@@ -4,33 +4,35 @@ import pandas as pd
 import joblib
 import os
 import json
+import numpy as np
 from datetime import datetime
 
 # --- Page Configuration ---
-# Sets the title, icon, and layout for the Streamlit page. This should be the first Streamlit command.
 st.set_page_config(
     page_title="Bostadsvärdering",
     page_icon="🏠",
     layout="centered"
 )
 
-# --- Path Configuration ---
-# Get the absolute path of the directory where this script is located (e.g., .../project/src).
+# --- Path Configuration (UPDATED for train3.py) ---
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-# Construct the path to the 'models' directory by going up one level from 'src'.
-# This makes the script runnable from any location.
 MODEL_DIR = os.path.join(APP_DIR, '..', 'models')
 
 # Define paths to all required model and artifact files.
 MODEL_PATHS = {
-    'lower': os.path.join(MODEL_DIR, 'xgb_model_q10.joblib'),   # Predicts the 10th percentile price
-    'median': os.path.join(MODEL_DIR, 'xgb_model_q50.joblib'), # Predicts the 50th percentile (median) price
-    'upper': os.path.join(MODEL_DIR, 'xgb_model_q90.joblib')    # Predicts the 90th percentile price
+    'lower': os.path.join(MODEL_DIR, 'xgb_model_q5.joblib'),    # Predicts the 5th percentile price
+    'median': os.path.join(MODEL_DIR, 'xgb_model_q50.joblib'),  # Predicts the 50th percentile (median) price
+    'upper': os.path.join(MODEL_DIR, 'xgb_model_q95.joblib')    # Predicts the 95th percentile price
 }
 # Path to the list of feature columns the model was trained on. Saved with joblib.
-COLUMNS_PATH = os.path.join(MODEL_DIR, 'model_columns.json')
+COLUMNS_PATH = os.path.join(MODEL_DIR, 'model_columns.joblib')
 # Path to the list of valid location areas for the dropdown. Saved as a standard JSON file.
 LOCATION_COLUMNS_PATH = os.path.join(MODEL_DIR, 'location_area_columns.json')
+# NEW: Path to the target-encoded price map for locations.
+LOCATION_PRICE_MAP_PATH = os.path.join(MODEL_DIR, 'location_price_map.json')
+
+# Define the epoch for date feature engineering, must match train3.py
+EPOCH = pd.Timestamp("2000-01-01")
 
 
 # --- Helper Functions ---
@@ -42,16 +44,14 @@ def load_models_and_columns():
     Uses @st.cache_resource to ensure these large objects are loaded only once.
     """
     try:
-        # Load the dictionary of models.
         models = {name: joblib.load(path) for name, path in MODEL_PATHS.items()}
-        # The list of model columns was also saved using joblib, so we load it the same way.
         model_columns = joblib.load(COLUMNS_PATH)
         return models, model_columns
     except FileNotFoundError as e:
         st.error(
             "Ett fel uppstod: En modell- eller kolumnfil kunde inte hittas. "
             f"Kontrollera att filerna finns i mappen '{MODEL_DIR}'. "
-            "Se till att du har kört 'src/train.py' för att skapa alla nödvändiga filer. "
+            "Se till att du har kört den senaste versionen av 'src/train.py' för att skapa alla nödvändiga filer. "
             f"Specifikt fel: {e}"
         )
         return None, None
@@ -63,54 +63,80 @@ def load_models_and_columns():
 def load_location_options():
     """
     Loads the list of unique 'location_area' values from its JSON file.
-    Uses @st.cache_data for efficient caching of serializable data (like a list).
     """
     try:
-        # This file is a standard JSON, so we load it with the json library.
         with open(LOCATION_COLUMNS_PATH, 'r', encoding='utf-8') as f:
             locations = json.load(f)
         return locations
     except FileNotFoundError:
         st.error(
             f"Ett fel uppstod: Filen med områden ('{os.path.basename(LOCATION_COLUMNS_PATH)}') hittades inte. "
-            f"Sökväg: '{LOCATION_COLUMNS_PATH}'. Kör 'src/train.py' för att skapa den."
+            "Kör 'src/train.py' för att skapa den."
         )
         return []
     except json.JSONDecodeError:
-        st.error(
-            f"Ett fel uppstod: Filen '{os.path.basename(LOCATION_COLUMNS_PATH)}' är inte en giltig JSON-fil. "
-            "Kör 'src/train.py' igen för att återskapa den korrekt."
-        )
+        st.error(f"Filen '{os.path.basename(LOCATION_COLUMNS_PATH)}' är inte en giltig JSON-fil.")
         return []
 
-def make_prediction(input_data: dict, models: dict, model_columns: list) -> dict:
+@st.cache_data
+def load_location_price_map():
     """
-    Prepares user input, creates predictions using the loaded models, and returns them.
+    Loads the location-to-price-per-m2 map.
+    Also calculates a global median to use as a fallback for any unseen locations.
+    """
+    try:
+        with open(LOCATION_PRICE_MAP_PATH, 'r', encoding='utf-8') as f:
+            price_map_dict = json.load(f)
+        
+        # Convert to a Pandas Series for easier mapping
+        price_map = pd.Series(price_map_dict)
+        # Calculate a robust fallback value (median) for any location not in the map
+        fallback_price = price_map.median()
+        
+        return price_map, fallback_price
+    except FileNotFoundError:
+        st.error(
+            f"Ett fel uppstod: Filen med områdespriser ('{os.path.basename(LOCATION_PRICE_MAP_PATH)}') hittades inte. "
+            "Kör 'src/train.py' (version 3) för att skapa den."
+        )
+        return None, None
+    except Exception as e:
+        st.error(f"Ett oväntat fel uppstod vid laddning av pris-mappningsfilen: {e}")
+        return None, None
 
-    Args:
-        input_data: A dictionary containing the user's input from the sidebar.
-        models: The dictionary of loaded XGBoost models.
-        model_columns: The list of feature names the models expect.
 
-    Returns:
-        A dictionary with 'lower', 'median', and 'upper' price predictions.
+def make_prediction(input_data: dict, models: dict, model_columns: list, price_map: pd.Series, fallback_price: float) -> dict:
+    """
+    Prepares user input using the exact same feature engineering pipeline from train3.py,
+    creates predictions using the loaded models, and returns them.
     """
     # 1. Create a DataFrame from the single input dictionary.
     df = pd.DataFrame([input_data])
     
-    # 2. Engineer date features, same as in the training script.
+    # 2. Engineer features EXACTLY as in train3.py
     df['sold_date'] = pd.to_datetime(df['sale_date'])
-    df['sale_year'] = df['sold_date'].dt.year
-    df['sale_month'] = df['sold_date'].dt.month
-    df['sale_dayofyear'] = df['sold_date'].dt.dayofyear
+    
+    # Basic features
+    df['total_area_m2'] = df['living_area_m2'] + df['non_living_area_m2']
+    df['plot_to_living_ratio'] = df['plot_area_m2'] / (df['living_area_m2'] + 1e-6)
+    df['sale_days_since_epoch'] = (df['sold_date'] - EPOCH).dt.days
+
+    # Log-transformed features
+    df['log_living_area'] = np.log1p(df['living_area_m2'])
+    df['log_plot_area'] = np.log1p(df['plot_area_m2'])
+    
+    # Target-encoded feature
+    df['location_median_price_per_m2'] = df['location_area'].map(price_map).fillna(fallback_price)
+    
+    # Drop columns that are no longer needed
     df = df.drop(columns=['sale_date', 'sold_date'])
     
     # 3. One-hot encode the categorical 'location_area' feature.
     df = pd.get_dummies(df, columns=['location_area'])
     
     # 4. Align the DataFrame columns with the original model's columns.
-    # This is a crucial step: it adds any missing one-hot encoded columns (with a value of 0)
-    # and ensures the column order matches exactly what the model was trained on.
+    # This is the most crucial step: it ensures the column order and presence
+    # matches exactly what the model was trained on.
     df_aligned = df.reindex(columns=model_columns, fill_value=0)
     
     # 5. Make predictions for each quantile model.
@@ -126,17 +152,18 @@ st.title("🏠 Automatisk Bostadsvärdering")
 st.markdown(
     """
     Skriv in egenskaperna för en villa för att få en prisuppskattning.
-    Modellen är tränad på 1600+ försäljningar från Hemnet i Uppsala och använder kvantilregression
-    för att ge ett troligt prisintervall.
+    Modellen är tränad på 1600+ försäljningar från Hemnet i Uppsala och använder avancerad
+    feature engineering och kvantilregression för att ge ett troligt prisintervall.
     """
 )
 
 # Load all necessary artifacts before building the UI.
 models, model_columns = load_models_and_columns()
 location_options = load_location_options()
+location_price_map, fallback_price = load_location_price_map()
 
 # Only proceed to build the main UI if all artifacts were loaded successfully.
-if models and model_columns and location_options:
+if all([models, model_columns, location_options, location_price_map is not None]):
     st.sidebar.header("Ange bostadens egenskaper")
 
     # --- User Input Fields ---
@@ -144,9 +171,9 @@ if models and model_columns and location_options:
     plot_area = st.sidebar.number_input("Tomtarea (m²)", min_value=100, max_value=10000, value=800, step=50)
     rooms = st.sidebar.number_input("Antal rum", min_value=1, max_value=20, value=5, step=1)
     
-    # Set a default location for a better user experience. Fallback to the first item if not found.
     try:
-        default_location_index = location_options.index('Täby')
+        # 'Other' is a good default as it will use the fallback median price.
+        default_location_index = location_options.index('Other')
     except (ValueError, IndexError):
         default_location_index = 0
     
@@ -165,23 +192,24 @@ if models and model_columns and location_options:
             'location_area': location_area,
             'sale_date': sale_date
         }
-        predictions = make_prediction(input_data, models, model_columns)
+        predictions = make_prediction(input_data, models, model_columns, location_price_map, fallback_price)
         
         st.subheader("Beräknad Värdering")
         
-        # Display predictions in a 3-column layout.
         col1, col2, col3 = st.columns(3)
-        # Format numbers with spaces as thousand separators for Swedish locale.
         median_price_str = f"{predictions['median']:,}".replace(",", " ")
         lower_price_str = f"{predictions['lower']:,}".replace(",", " ")
         upper_price_str = f"{predictions['upper']:,}".replace(",", " ")
 
-        col1.metric("Lägre estimat (10%)", f"{lower_price_str} kr")
+        # UPDATED labels to reflect 5% and 95% quantiles
+        col1.metric("Lägre estimat (5%)", f"{lower_price_str} kr")
         col2.metric("Median-värdering (50%)", f"{median_price_str} kr")
-        col3.metric("Högre estimat (90%)", f"{upper_price_str} kr")
+        col3.metric("Högre estimat (95%)", f"{upper_price_str} kr")
 
-# Display warnings if artifacts are missing, guiding the user to run the training script.
-elif not models or not model_columns:
-    st.warning("Väntar på att modellfilerna ska skapas. Kör `src/train.py` för att generera dem.")
-elif not location_options:
-     st.warning("Väntar på att områdesfilen ska skapas. Kör `src/train.py` för att generera den.")
+# Display warnings if artifacts are missing, guiding the user.
+else:
+    st.warning(
+        "Vissa modellfiler saknas eller kunde inte laddas. "
+        "Kör `src/train.py` (den senaste versionen) för att generera alla nödvändiga artefakter i mappen `models/`. "
+        "Kontrollera eventuella felmeddelanden ovan."
+    )
