@@ -277,20 +277,20 @@ def main():
                 col1_exp, col2_exp = st.columns(2)
 
                 with col1_exp:
-                    st.markdown("<h5>Faktorer som höjer priset <span style='color:green;'>▲</span></h5>", unsafe_allow_html=True)
+                    col1_exp.markdown("<h5>Faktorer som höjer priset <span style='color:green;'>▲</span></h5>", unsafe_allow_html=True)
                     if not positive_shaps.empty:
                         for feature, value in positive_shaps.items():
-                            st.markdown(f"**{feature}:** {format_shap_value(value)}", unsafe_allow_html=True)
+                            col1_exp.markdown(f"**{feature}:** {format_shap_value(value)}", unsafe_allow_html=True)
                     else:
-                        st.info("Inga betydande faktorer höjde priset.", icon="ℹ️")
+                        col1_exp.info("Inga betydande faktorer höjde priset.", icon="ℹ️")
 
                 with col2_exp:
-                    st.markdown("<h5>Faktorer som sänker priset <span style='color:red;'>▼</span></h5>", unsafe_allow_html=True)
+                    col2_exp.markdown("<h5>Faktorer som sänker priset <span style='color:red;'>▼</span></h5>", unsafe_allow_html=True)
                     if not negative_shaps.empty:
                         for feature, value in negative_shaps.items():
-                            st.markdown(f"**{feature}:** {format_shap_value(value)}", unsafe_allow_html=True)
+                            col2_exp.markdown(f"**{feature}:** {format_shap_value(value)}", unsafe_allow_html=True)
                     else:
-                        st.info("Inga betydande faktorer sänkte priset.", icon="ℹ️")
+                        col2_exp.info("Inga betydande faktorer sänkte priset.", icon="ℹ️")
 
                 st.markdown("---")
 
