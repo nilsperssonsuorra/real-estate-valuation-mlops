@@ -124,15 +124,18 @@ def run_scraper():
             try:
                 existing_df = pd.read_csv(config.RAW_DATA_PATH)
             except pd.errors.EmptyDataError:
-                print("WARNING: Existing local CSV file is empty. Starting fresh.")
+                print("WARNING: Existing CSV file is empty. Starting fresh.")
             except Exception as e:
-                print(f"ERROR: Could not read existing local CSV. Error: {e}. Starting fresh.")
+                print(f"ERROR: Could not read existing CSV file. Error: {e}. Starting fresh.")
     
-    if not existing_df.empty and 'url' in existing_df.columns:
-        existing_urls = set(existing_df['url'].dropna())
-        print(f"Loaded {len(existing_urls)} unique listings to check against.")
+    if not existing_df.empty:
+        if 'url' in existing_df.columns:
+            existing_urls = set(existing_df['url'].dropna())
+            print(f"Loaded {len(existing_urls)} unique listings to check against.")
+        else:
+            print("WARNING: 'url' column not found in existing CSV. Will scrape all pages.")
     else:
-        print("No existing data found or 'url' column missing. Scraping all pages.")
+        print("No existing data loaded. Scraping all pages.")
 
     newly_scraped_data = []
     print("\n--- Setting up Selenium WebDriver ---")

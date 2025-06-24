@@ -72,7 +72,10 @@ def load_models_and_columns():
             explainer = joblib.load(config.SHAP_EXPLAINER_PATH)
             return models, model_columns, explainer
         except FileNotFoundError as e:
-            st.error(f"Ett fel uppstod: En modellfil hittades inte. Kör 'src/train.py'. Fel: {e}")
+            st.error(f"En modell-, kolumn- eller SHAP-fil kunde inte hittas. Kör 'src/train.py'. Fel: {e}")
+            return None, None, None
+        except Exception as e:
+            st.error(f"Ett oväntat fel uppstod vid laddning av modellfiler: {e}")
             return None, None, None
 
 @st.cache_data
@@ -95,6 +98,9 @@ def load_location_options():
         except FileNotFoundError:
             st.error("Filen med områden hittades inte. Kör 'src/train.py'.")
             return []
+        except json.JSONDecodeError:
+            st.error(f"Filen '{config.LOCATION_OPTIONS_FILE}' är korrupt eller inte en giltig JSON-fil.")
+            return []
 
 @st.cache_data
 def load_location_price_map():
@@ -115,6 +121,12 @@ def load_location_price_map():
                 price_map_dict = json.load(f)
         except FileNotFoundError:
             st.error("Filen med pris-mappning hittades inte. Kör 'src/train.py'.")
+            return None, None
+        except json.JSONDecodeError:
+            st.error(f"Filen '{config.LOCATION_PRICE_MAP_FILE}' är korrupt eller inte en giltig JSON-fil.")
+            return None, None
+        except Exception as e:
+            st.error(f"Ett oväntat fel uppstod vid laddning av pris-mappning: {e}")
             return None, None
             
     price_map = pd.Series(price_map_dict)
