@@ -6,7 +6,6 @@ import json
 import numpy as np
 from datetime import datetime
 import config  # Import the new config file
-import shap
 
 # --- Page Configuration ---
 st.set_page_config(

@@ -3,7 +3,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from unittest.mock import patch, MagicMock, mock_open
-from datetime import date, datetime
+from datetime import date
 import json
 
 # Import the functions to test from the Streamlit app
