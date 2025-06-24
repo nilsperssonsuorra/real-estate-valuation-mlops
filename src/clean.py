@@ -2,7 +2,8 @@
 import pandas as pd
 import os
 from dateutil import parser
-import config  # Import the new config file
+import config
+import azure_utils
 
 def clean_location(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -116,41 +117,59 @@ def analyze_data(df: pd.DataFrame):
 
 def run_cleaning_pipeline():
     """
-    Loads raw data, runs the full cleaning and processing pipeline,
-    analyzes the result, and saves the cleaned data to a new CSV file.
-    This is the main entry point for the cleaning process.
+    Loads raw data (locally or from Azure), runs the full cleaning pipeline,
+    and saves the cleaned data back to its source.
     """
     print("--- Starting Data Cleaning Process ---")
+    df = pd.DataFrame()
     
-    try:
-        print(f"Loading raw data from: '{config.RAW_DATA_PATH}'")
-        df = pd.read_csv(config.RAW_DATA_PATH)
-        print(f"Successfully loaded {len(df)} rows.")
-    except FileNotFoundError:
-        print(f"ERROR: Raw data file not found at '{config.RAW_DATA_PATH}'.")
-        print("Please run the scraper script (src/scrape.py) first.")
+    if config.IS_CLOUD:
+        print("--- CLOUD MODE: Loading raw data from Azure Blob Storage ---")
+        df = azure_utils.download_df_from_blob(
+            config.AZURE_RAW_DATA_CONTAINER, config.RAW_DATA_BLOB_NAME
+        )
+    else:
+        print(f"--- LOCAL MODE: Loading raw data from '{config.RAW_DATA_PATH}' ---")
+        try:
+            df = pd.read_csv(config.RAW_DATA_PATH)
+        except FileNotFoundError:
+            print(f"ERROR: Raw data file not found at '{config.RAW_DATA_PATH}'.")
+            print("Please run the scraper script (src/scrape.py) first.")
+            return
+        except pd.errors.EmptyDataError:
+            print("ERROR: The raw data file is empty. No data to process.")
+            return
+
+    if df.empty:
+        print("Input data is empty. Exiting cleaning process.")
         return
-    except pd.errors.EmptyDataError:
-        print("ERROR: The raw data file is empty. No data to process.")
-        return
+        
+    print(f"Successfully loaded {len(df)} rows.")
 
     df_cleaned = clean_location(df.copy())
     df_processed = perform_data_cleaning_and_engineering(df_cleaned)
 
     analyze_data(df_processed)
 
-    try:
-        os.makedirs(config.PROCESSED_DATA_DIR, exist_ok=True)
-        
-        df_processed.to_csv(config.PROCESSED_DATA_PATH, index=False, encoding='utf-8-sig')
-        print("\n--- Success! ---")
-        print(f"Processed data saved to: '{config.PROCESSED_DATA_PATH}'")
-        
-        print("\n--- Preview of Processed Data ---")
-        print(df_processed.head().to_string())
-
-    except Exception as e:
-        print(f"\nERROR: Failed to save processed data. Reason: {e}")
+    # --- Save the processed data ---
+    if config.IS_CLOUD:
+        print("\n--- CLOUD MODE: Uploading processed data to Azure Blob Storage ---")
+        azure_utils.upload_df_to_blob(
+            df_processed, config.AZURE_PROCESSED_DATA_CONTAINER, config.PROCESSED_DATA_BLOB_NAME
+        )
+    else:
+        print(f"\n--- LOCAL MODE: Saving processed data to '{config.PROCESSED_DATA_PATH}' ---")
+        try:
+            os.makedirs(config.PROCESSED_DATA_DIR, exist_ok=True)
+            df_processed.to_csv(config.PROCESSED_DATA_PATH, index=False, encoding='utf-8-sig')
+        except Exception as e:
+            print(f"\nERROR: Failed to save processed data locally. Reason: {e}")
+            return
+    
+    print("\n--- Success! ---")
+    print("Processed data saved successfully.")
+    print("\n--- Preview of Processed Data ---")
+    print(df_processed.head().to_string())
 
 
 if __name__ == '__main__':

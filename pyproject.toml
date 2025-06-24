@@ -1,7 +1,11 @@
-
 [tool.pytest.ini_options]
 pythonpath = [
   "src"
+]
+filterwarnings = [
+    # Ignore all DeprecationWarnings from the opencensus library and its submodules,
+    # as we cannot fix third-party code.
+    "ignore::DeprecationWarning:opencensus.*"
 ]
 
 [tool.coverage.report]

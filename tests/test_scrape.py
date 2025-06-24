@@ -10,6 +10,7 @@ from selenium.common.exceptions import TimeoutException
 
 # Import functions from the script we are testing
 from scrape import parse_from_next_data, clean_dataframe, run_scraper
+import config
 
 # Sample __NEXT_DATA__ JSON to simulate what we get from Hemnet
 SAMPLE_NEXT_DATA = {
@@ -88,8 +89,16 @@ def test_parse_from_next_data_malformed_json():
     data = parse_from_next_data(soup)
     assert data == []
 
+def test_parse_from_next_data_key_error():
+    # Simulate JSON that is valid but missing a required key ('pageProps')
+    malformed_next_data = {"props": {}}
+    json_str = json.dumps(malformed_next_data)
+    html = f'<html><body><script id="__NEXT_DATA__" type="application/json">{json_str}</script></body></html>'
+    soup = BeautifulSoup(html, 'html.parser')
+    data = parse_from_next_data(soup)
+    assert data == [] # The function should gracefully handle the KeyError and return an empty list
+
 def test_clean_dataframe_empty():
-    """ This test is for robustness, but the line is marked no-cover as it's unreachable in run_scraper """
     df = pd.DataFrame()
     cleaned_df = clean_dataframe(df)
     assert cleaned_df.empty
@@ -172,10 +181,74 @@ def test_run_scraper_no_new_data_found(mock_print, mock_to_csv, mock_read_csv, m
 @patch('pandas.DataFrame.sort_values', side_effect=Exception("Mocked sorting error"))
 @patch('builtins.print')
 def test_run_scraper_sort_by_date_exception(mock_print, mock_sort_values, mock_to_csv, mock_exists, mock_driver_class, mock_cdm, mock_service):
-    """
-    Tests that the except block for the date sorting logic is triggered correctly
-    by forcing the .sort_values() method to raise an exception.
-    """
+    mock_driver = MagicMock()
+    type(mock_driver).page_source = PropertyMock(side_effect=[
+        f'<html><body><script id="__NEXT_DATA__" type="application/json">{json.dumps(SAMPLE_NEXT_DATA)}</script></body></html>',
+        "<html></html>"
+    ])
+    mock_driver_class.return_value = mock_driver
+    run_scraper()
+    mock_sort_values.assert_called_once()
+    any_call_with_error = any("Could not sort by date" in call.args[0] for call in mock_print.call_args_list if call.args)
+    assert any_call_with_error
+    mock_to_csv.assert_called_once()
+    
+def test_parse_from_next_data_slug_edge_cases():
+    next_data = {"props": {"pageProps": {"__APOLLO_STATE__": {"SaleCard:1": {"slug": "test-slug"}}}}}
+    html = f'<html><body><script id="__NEXT_DATA__" type="application/json">{json.dumps(next_data)}</script></body></html>'
+    soup = BeautifulSoup(html, 'html.parser')
+    data = parse_from_next_data(soup)
+    assert data[0]['url'] == "https://www.hemnet.se/test-slug"
+
+    next_data2 = {"props": {"pageProps": {"__APOLLO_STATE__": {"SaleCard:2": {}}}}}
+    html2 = f'<html><body><script id="__NEXT_DATA__" type="application/json">{json.dumps(next_data2)}</script></body></html>'
+    soup2 = BeautifulSoup(html2, 'html.parser')
+    data2 = parse_from_next_data(soup2)
+    assert data2[0]['url'] is None
+
+@patch('scrape.webdriver.Chrome')
+@patch('scrape.pd.read_csv')
+@patch('scrape.os.path.exists', return_value=True)
+@patch('builtins.print')
+def test_run_scraper_missing_url_column(mock_print, mock_exists, mock_read_csv, mock_driver_class):
+    existing_df = pd.DataFrame({'foo': [1, 2]})
+    mock_read_csv.return_value = existing_df
+    mock_driver = MagicMock()
+    type(mock_driver).page_source = PropertyMock(return_value="<html></html>")
+    mock_driver_class.return_value = mock_driver
+    with patch('scrape.Service'), patch('scrape.ChromeDriverManager'):
+        run_scraper()
+    assert any("WARNING: 'url' column not found" in call.args[0] for call in mock_print.call_args_list if call.args)
+    mock_driver.quit.assert_called_once()
+
+@patch('scrape.Service')
+@patch('scrape.ChromeDriverManager')
+@patch('scrape.webdriver.Chrome')
+@patch('scrape.os.path.exists', return_value=False)
+@patch('pandas.DataFrame.to_csv')
+@patch('pandas.DataFrame.sort_values')
+@patch('pandas.DataFrame.drop')
+@patch('pandas.to_datetime')
+def test_run_scraper_drops_temp_date_column_after_sort(mock_to_datetime, mock_drop, mock_sort, mock_to_csv, mock_exists, mock_driver_class, mock_cdm, mock_service):
+    mock_driver = MagicMock()
+    type(mock_driver).page_source = PropertyMock(side_effect=[
+        f'<html><body><script id="__NEXT_DATA__" type="application/json">{json.dumps(SAMPLE_NEXT_DATA)}</script></body></html>',
+        "<html></html>"
+    ])
+    mock_driver_class.return_value = mock_driver
+    mock_to_datetime.return_value = pd.Series([pd.Timestamp('2023-01-15'), pd.Timestamp('2023-02-01')])
+    run_scraper()
+    mock_sort.assert_called_once_with(by='sold_date_dt', ascending=False, inplace=True)
+    mock_drop.assert_called_once_with(columns=['sold_date_dt'], inplace=True)
+    mock_to_csv.assert_called_once()
+
+@patch('scrape.azure_utils.upload_df_to_blob')
+@patch('scrape.azure_utils.download_df_from_blob')
+@patch('scrape.webdriver.Chrome')
+def test_run_scraper_cloud(mock_driver_class, mock_download, mock_upload, monkeypatch):
+    """Tests the scraper's cloud execution path."""
+    monkeypatch.setattr(config, 'IS_CLOUD', True)
+    mock_download.return_value = pd.DataFrame()
     mock_driver = MagicMock()
     type(mock_driver).page_source = PropertyMock(side_effect=[
         f'<html><body><script id="__NEXT_DATA__" type="application/json">{json.dumps(SAMPLE_NEXT_DATA)}</script></body></html>',
@@ -183,143 +256,11 @@ def test_run_scraper_sort_by_date_exception(mock_print, mock_sort_values, mock_t
     ])
     mock_driver_class.return_value = mock_driver
 
-    run_scraper()
-
-    mock_sort_values.assert_called_once()
-
-    any_call_with_error = any("Could not sort by date" in call.args[0] for call in mock_print.call_args_list if call.args)
-    assert any_call_with_error
-
-    mock_to_csv.assert_called_once()
-    
-def test_parse_from_next_data_slug_edge_cases():
-    # 1) slug without a leading slash
-    next_data = {
-        "props": {
-            "pageProps": {
-                "__APOLLO_STATE__": {
-                    "SaleCard:1": {
-                        "location": {},
-                        "locationDescription": "",
-                        "finalPrice": None,
-                        "priceChange": None,
-                        "soldAtLabel": "",
-                        "livingArea": None,
-                        "rooms": None,
-                        "landArea": None,
-                        "slug": "test-slug"
-                    }
-                }
-            }
-        }
-    }
-    html = (
-        '<html><body>'
-        f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(next_data)}</script>'
-        '</body></html>'
-    )
-    soup = BeautifulSoup(html, 'html.parser')
-    data = parse_from_next_data(soup)
-    assert len(data) == 1
-    # should prepend a single slash + domain
-    assert data[0]['url'] == "https://www.hemnet.se/test-slug"
-
-    # 2) slug missing entirely → url is None
-    next_data2 = {
-        "props": {
-            "pageProps": {
-                "__APOLLO_STATE__": {
-                    "SaleCard:2": {
-                        "location": {},
-                        "locationDescription": "",
-                        "finalPrice": None,
-                        "priceChange": None,
-                        "soldAtLabel": "",
-                        "livingArea": None,
-                        "rooms": None,
-                        "landArea": None
-                        # no slug key here
-                    }
-                }
-            }
-        }
-    }
-    html2 = (
-        '<html><body>'
-        f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(next_data2)}</script>'
-        '</body></html>'
-    )
-    soup2 = BeautifulSoup(html2, 'html.parser')
-    data2 = parse_from_next_data(soup2)
-    assert len(data2) == 1
-    assert data2[0]['url'] is None
-
-
-@patch('scrape.webdriver.Chrome')
-@patch('scrape.pd.read_csv')
-@patch('scrape.os.path.exists', return_value=True)
-@patch('builtins.print')
-def test_run_scraper_missing_url_column(mock_print, mock_exists, mock_read_csv, mock_driver_class):
-    # Simulate an existing CSV that has no 'url' column
-    existing_df = pd.DataFrame({'foo': [1, 2]})
-    mock_read_csv.return_value = existing_df
-
-    # Make the driver return an empty page so run_scraper quits immediately
-    mock_driver = MagicMock()
-    type(mock_driver).page_source = PropertyMock(return_value="<html></html>")
-    mock_driver_class.return_value = mock_driver
-
     with patch('scrape.Service'), patch('scrape.ChromeDriverManager'):
         run_scraper()
 
-    # It should warn that 'url' column wasn't found and then proceed
-    assert any(
-        "WARNING: 'url' column not found in existing CSV. Will scrape all pages."
-        in call.args[0]
-        for call in mock_print.call_args_list
-        if call.args
-    )
-    mock_driver.quit.assert_called_once()
-
-
-@patch('scrape.Service')
-@patch('scrape.ChromeDriverManager')
-@patch('scrape.webdriver.Chrome')
-@patch('scrape.os.path.exists', return_value=False)
-@patch('pandas.DataFrame.to_csv')
-@patch('pandas.DataFrame.sort_values')  # Mock to ensure it doesn't fail
-@patch('pandas.DataFrame.drop')         # Mock to assert it gets called
-@patch('pandas.to_datetime')            # Mock to prevent real parsing errors
-def test_run_scraper_drops_temp_date_column_after_sort(
-    mock_to_datetime, mock_drop, mock_sort, mock_to_csv, mock_exists, mock_driver_class, mock_cdm, mock_service
-):
-    """
-    Tests that after a successful sort, the temporary 'sold_date_dt' column is dropped.
-    This specifically covers the successful path of the try-except block for sorting.
-    """
-    # --- Arrange ---
-    # 1. Mock the selenium driver to return one page of data, then an empty page to stop.
-    mock_driver = MagicMock()
-    type(mock_driver).page_source = PropertyMock(side_effect=[
-        f'<html><body><script id="__NEXT_DATA__" type="application/json">{json.dumps(SAMPLE_NEXT_DATA)}</script></body></html>',
-        "<html></html>"  # Empty page to stop the loop
-    ])
-    mock_driver_class.return_value = mock_driver
-
-    # 2. Mock pd.to_datetime to return a valid Series, ensuring the `try` block proceeds.
-    mock_to_datetime.return_value = pd.Series([pd.Timestamp('2023-01-15'), pd.Timestamp('2023-02-01')])
-
-    # --- Act ---
-    run_scraper()
-
-    # --- Assert ---
-    # 1. Verify that the script attempted to sort by the temporary datetime column.
-    mock_sort.assert_called_once_with(by='sold_date_dt', ascending=False, inplace=True)
-
-    # 2. Verify that the temporary column was dropped. This is the key assertion for the missing line.
-    # Note: We are patching `pd.DataFrame.drop`, not `drop_duplicates`, so this mock will only
-    # be called by the line we want to test.
-    mock_drop.assert_called_once_with(columns=['sold_date_dt'], inplace=True)
-
-    # 3. Verify that the final save operation was still called.
-    mock_to_csv.assert_called_once()
+    mock_download.assert_called_once_with(config.AZURE_RAW_DATA_CONTAINER, config.RAW_DATA_BLOB_NAME)
+    mock_upload.assert_called_once()
+    uploaded_df = mock_upload.call_args.args[0]
+    assert isinstance(uploaded_df, pd.DataFrame)
+    assert len(uploaded_df) == 2
