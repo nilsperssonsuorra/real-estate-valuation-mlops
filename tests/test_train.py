@@ -2,11 +2,10 @@
 import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, mock_open
 
 import train
 import config
-import xgboost as xgb # Keep this import to reference the real class if needed, but not for spec
 
 @pytest.fixture
 def sample_processed_df():

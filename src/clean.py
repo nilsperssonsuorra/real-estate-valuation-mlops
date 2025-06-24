@@ -120,7 +120,7 @@ def run_cleaning_pipeline():
     analyzes the result, and saves the cleaned data to a new CSV file.
     This is the main entry point for the cleaning process.
     """
-    print(f"--- Starting Data Cleaning Process ---")
+    print("--- Starting Data Cleaning Process ---")
     
     try:
         print(f"Loading raw data from: '{config.RAW_DATA_PATH}'")
@@ -131,7 +131,7 @@ def run_cleaning_pipeline():
         print("Please run the scraper script (src/scrape.py) first.")
         return
     except pd.errors.EmptyDataError:
-        print(f"ERROR: The raw data file is empty. No data to process.")
+        print("ERROR: The raw data file is empty. No data to process.")
         return
 
     df_cleaned = clean_location(df.copy())
@@ -143,7 +143,7 @@ def run_cleaning_pipeline():
         os.makedirs(config.PROCESSED_DATA_DIR, exist_ok=True)
         
         df_processed.to_csv(config.PROCESSED_DATA_PATH, index=False, encoding='utf-8-sig')
-        print(f"\n--- Success! ---")
+        print("\n--- Success! ---")
         print(f"Processed data saved to: '{config.PROCESSED_DATA_PATH}'")
         
         print("\n--- Preview of Processed Data ---")
