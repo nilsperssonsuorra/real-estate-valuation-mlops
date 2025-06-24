@@ -197,7 +197,7 @@ def main():
             col3.metric("Högre estimat (95%)", f"{upper_price_str} kr")
 
             with st.expander("Varför detta pris? Klicka för att se detaljerna."):
-                base_price = int(explainer.expected_value[0])
+                base_price = int(explainer.expected_value)
 
                 st.markdown(f"""
                 Nedan ser du hur de olika egenskaperna du angett påverkar den slutgiltiga värderingen.

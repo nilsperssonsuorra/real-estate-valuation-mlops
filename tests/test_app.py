@@ -203,7 +203,7 @@ def test_main_success_flow(mock_load_models, mock_load_loc_options, mock_load_pr
     ])
 
     mock_explainer = MagicMock()
-    mock_explainer.expected_value = [3000000]
+    mock_explainer.expected_value = 3000000
     mock_explainer.shap_values.return_value = [test_shap_values]
     mock_load_models.return_value = ({"mock": "models"}, test_model_columns, mock_explainer)
 
@@ -244,7 +244,7 @@ def test_main_shap_display_no_positives(mock_load_models, mock_load_loc_options,
     test_shap_values = np.array([-50000])
 
     mock_explainer = MagicMock()
-    mock_explainer.expected_value = [3000000]
+    mock_explainer.expected_value = 3000000
     mock_explainer.shap_values.return_value = [test_shap_values]
     mock_load_models.return_value = ({"mock": "models"}, test_model_columns, mock_explainer)
     mock_load_loc_options.return_value = ["Other"]
@@ -272,7 +272,7 @@ def test_main_shap_display_no_negatives(mock_load_models, mock_load_loc_options,
     test_shap_values = np.array([50000])
 
     mock_explainer = MagicMock()
-    mock_explainer.expected_value = [3000000]
+    mock_explainer.expected_value = 3000000
     mock_explainer.shap_values.return_value = [test_shap_values]
     mock_load_models.return_value = ({"mock": "models"}, test_model_columns, mock_explainer)
     mock_load_loc_options.return_value = ["Other"]
