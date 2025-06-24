@@ -58,9 +58,28 @@ jobs:
         uses: azure/CLI@v1
         with:
           inlineScript: |
+            echo "Finding the latest active revision for container app ${{ env.AZURE_CONTAINER_APP_NAME }}..."
+            
+            # 1. Get the name of the latest active revision
+            LATEST_REVISION_NAME=$(az containerapp revision list \
+              --name ${{ env.AZURE_CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query "[?properties.active==\`true\`].name" \
+              -o tsv)
+
+            # 2. Check if a revision name was found
+            if [ -z "$LATEST_REVISION_NAME" ]; then
+              echo "Error: Could not find an active revision for the container app."
+              exit 1
+            fi
+
+            echo "Found active revision: $LATEST_REVISION_NAME. Restarting it now..."
+            
+            # 3. Restart that specific revision by name
             az containerapp revision restart \
               --name ${{ env.AZURE_CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --revision "$LATEST_REVISION_NAME"
 
       - name: Logout from Azure
         if: always()
