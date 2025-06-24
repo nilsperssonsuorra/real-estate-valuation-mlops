@@ -1,0 +1,21 @@
+# requirements.in
+
+# Core ML and Data
+xgboost
+scikit-learn
+pandas
+numpy
+shap
+
+# App Framework
+streamlit
+
+# Web Scraping
+selenium
+beautifulsoup4
+webdriver-manager
+
+# Testing & Linting
+pytest
+pytest-cov
+ruff
