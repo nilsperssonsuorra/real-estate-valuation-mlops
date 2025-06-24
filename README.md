@@ -1,3 +1,4 @@
+[![codecov](https://codecov.io/gh/nilsperssonsuorra/real-estate-valuation-mlops/branch/main/graph/badge.svg)](https://app.codecov.io/gh/nilsperssonsuorra/real-estate-valuation-mlops)
 # 🏠 Automated Housing Valuation
 
 An end-to-end machine learning project to predict the final sale price of real estate in Sweden. This repository documents the entire MLOps lifecycle, from data collection to a deployed, interactive application.
