@@ -19,3 +19,7 @@ webdriver-manager
 pytest
 pytest-cov
 ruff
+
+# Cloud & Monitoring
+azure-storage-blob
+opencensus-ext-azure
