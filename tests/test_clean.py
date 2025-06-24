@@ -76,12 +76,11 @@ def test_analyze_data(mock_print, sample_raw_df):
 
 @patch('builtins.print')
 def test_analyze_data_with_missing_values(mock_print):
-    """NEW: Tests the analysis function when data has missing values to improve coverage."""
+    """Tests the analysis function when data has missing values to improve coverage."""
     df_missing = pd.DataFrame({'A': [1, 2, None], 'location_area': ['X', 'Y', 'Z']})
     analyze_data(df_missing)
     any_call_with_missing_header = any("Missing Value Counts" in call.args[0] for call in mock_print.call_args_list if call.args)
     assert any_call_with_missing_header
-    # Check that the block for printing missing values was entered and printed column A
     any_call_with_col_A = any("A    1" in str(call.args[0]) for call in mock_print.call_args_list if call.args)
     assert any_call_with_col_A
 
@@ -116,22 +115,38 @@ def test_run_cleaning_pipeline_empty_data_error(mock_print, mock_read_csv):
     any_call_with_error = any("raw data file is empty" in call.args[0] for call in mock_print.call_args_list if call.args)
     assert any_call_with_error
 
+@patch('clean.pd.read_csv', return_value=pd.DataFrame())
+@patch('builtins.print')
+def test_run_cleaning_pipeline_empty_input(mock_print, mock_read_csv):
+    """Tests the pipeline when the loaded dataframe is empty."""
+    run_cleaning_pipeline()
+    mock_read_csv.assert_called_once()
+    any_call_with_msg = any("Input data is empty. Exiting cleaning process." in call.args[0] for call in mock_print.call_args_list if call.args)
+    assert any_call_with_msg
+
 @patch('clean.pd.read_csv')
-@patch('pandas.DataFrame.to_csv', side_effect=IOError("Permission denied"))
+@patch('pandas.DataFrame.to_csv', side_effect=Exception("Permission denied"))
 @patch('builtins.print')
 def test_run_cleaning_pipeline_save_error(mock_print, mock_to_csv, mock_read_csv):
-    # FIX: Provide a more complete mock DataFrame that includes all columns
-    # needed by the cleaning pipeline to prevent the KeyError.
+    """Tests the generic exception handler when saving the processed data."""
     mock_data = {
-        'location': ['Test Area, Uppsala'],
-        'sold_date': ['15 januari 2023'],
-        'final_price': [5000000],
-        'living_area_m2': [100]
+        'location': ['Test Area, Uppsala'], 'sold_date': ['15 januari 2023'],
+        'final_price': [5000000], 'living_area_m2': [100]
     }
     mock_read_csv.return_value = pd.DataFrame(mock_data)
-
     run_cleaning_pipeline()
-
     mock_to_csv.assert_called_once()
-    any_call_with_error = any("Failed to save processed data" in call.args[0] for call in mock_print.call_args_list if call.args)
+    any_call_with_error = any("Failed to save processed data locally" in call.args[0] for call in mock_print.call_args_list if call.args)
     assert any_call_with_error
+
+@patch('clean.azure_utils.upload_df_to_blob')
+@patch('clean.azure_utils.download_df_from_blob')
+@patch('clean.analyze_data')
+def test_run_cleaning_pipeline_cloud(mock_analyze, mock_download, mock_upload, sample_raw_df, monkeypatch):
+    """Tests the successful, end-to-end cloud flow of the cleaning pipeline."""
+    monkeypatch.setattr(config, 'IS_CLOUD', True)
+    mock_download.return_value = sample_raw_df
+    run_cleaning_pipeline()
+    mock_download.assert_called_once_with(config.AZURE_RAW_DATA_CONTAINER, config.RAW_DATA_BLOB_NAME)
+    mock_upload.assert_called_once()
+    assert isinstance(mock_upload.call_args.args[0], pd.DataFrame)

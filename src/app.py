@@ -12,7 +12,7 @@ import logging
 
 # Import Azure utilities if in cloud
 if config.IS_CLOUD:
-    from src import azure_utils
+    import azure_utils
     from opencensus.ext.azure.log_exporter import AzureLogHandler
 
 # --- Page Configuration ---
