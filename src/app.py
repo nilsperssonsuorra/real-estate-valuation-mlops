@@ -93,7 +93,7 @@ def load_location_options():
             with open(config.LOCATION_OPTIONS_PATH, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except FileNotFoundError:
-            st.error(f"Filen med områden hittades inte. Kör 'src/train.py'.")
+            st.error("Filen med områden hittades inte. Kör 'src/train.py'.")
             return []
 
 @st.cache_data
@@ -114,7 +114,7 @@ def load_location_price_map():
             with open(config.LOCATION_PRICE_MAP_PATH, 'r', encoding='utf-8') as f:
                 price_map_dict = json.load(f)
         except FileNotFoundError:
-            st.error(f"Filen med pris-mappning hittades inte. Kör 'src/train.py'.")
+            st.error("Filen med pris-mappning hittades inte. Kör 'src/train.py'.")
             return None, None
             
     price_map = pd.Series(price_map_dict)

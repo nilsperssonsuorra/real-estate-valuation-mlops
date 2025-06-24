@@ -124,7 +124,7 @@ def run_cleaning_pipeline():
     df = pd.DataFrame()
     
     if config.IS_CLOUD:
-        print(f"--- CLOUD MODE: Loading raw data from Azure Blob Storage ---")
+        print("--- CLOUD MODE: Loading raw data from Azure Blob Storage ---")
         df = azure_utils.download_df_from_blob(
             config.AZURE_RAW_DATA_CONTAINER, config.RAW_DATA_BLOB_NAME
         )
@@ -167,7 +167,7 @@ def run_cleaning_pipeline():
             return
     
     print("\n--- Success! ---")
-    print(f"Processed data saved successfully.")
+    print("Processed data saved successfully.")
     print("\n--- Preview of Processed Data ---")
     print(df_processed.head().to_string())
 

@@ -3,7 +3,7 @@ import pandas as pd
 import joblib
 import json
 import tempfile
-from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
+from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceNotFoundError
 
 # This function will initialize the client only if the connection string is available
@@ -31,7 +31,6 @@ def download_df_from_blob(container_name: str, blob_name: str) -> pd.DataFrame:
 
 def upload_df_to_blob(df: pd.DataFrame, container_name: str, blob_name: str):
     """Uploads a pandas DataFrame to a blob."""
-    from io import StringIO
     blob_client = BLOB_SERVICE_CLIENT.get_blob_client(container=container_name, blob=blob_name)
     output = df.to_csv(index=False, encoding='utf-8')
     blob_client.upload_blob(output, overwrite=True)

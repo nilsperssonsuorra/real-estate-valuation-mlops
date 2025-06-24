@@ -5,7 +5,8 @@ import random
 from bs4 import BeautifulSoup
 import json
 import os
-import config  # Import the new config file
+import config
+import azure_utils
 
 # Selenium imports
 from selenium import webdriver
@@ -17,7 +18,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException
 
-# --- Parsing and Cleaning Functions (No changes needed here) ---
+# --- Parsing and Cleaning Functions ---
 
 def parse_from_next_data(soup):
     """
@@ -113,7 +114,7 @@ def run_scraper():
     existing_urls = set()
 
     if config.IS_CLOUD:
-        print(f"--- CLOUD MODE: Loading existing data from Azure Blob Storage ---")
+        print("--- CLOUD MODE: Loading existing data from Azure Blob Storage ---")
         existing_df = azure_utils.download_df_from_blob(
             config.AZURE_RAW_DATA_CONTAINER, config.RAW_DATA_BLOB_NAME
         )
@@ -152,7 +153,8 @@ def run_scraper():
         print("--- Starting Hemnet Scraper ---")
         stop_scraping = False
         for page_num in range(1, config.SCRAPER_MAX_PAGES + 1):
-            if stop_scraping: break
+            if stop_scraping:
+                break
             page_url = f"{config.HEMNET_BASE_URL}&page={page_num}"
             print(f"Scraping page {page_num} of {config.SCRAPER_MAX_PAGES} from {page_url}")
             driver.get(page_url)
