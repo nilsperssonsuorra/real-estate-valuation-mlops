@@ -25,7 +25,7 @@ beautifulsoup4==4.13.4
     # via -r requirements.in
 blinker==1.9.0
     # via streamlit
-cachetools==6.1.0
+cachetools==5.5.2
     # via
     #   google-auth
     #   streamlit
@@ -60,9 +60,9 @@ gitdb==4.0.12
     # via gitpython
 gitpython==3.1.44
     # via streamlit
-google-api-core==1.16.0
+google-api-core==2.25.1
     # via opencensus
-google-auth==1.6.3
+google-auth==2.40.3
     # via google-api-core
 googleapis-common-protos==1.70.0
     # via google-api-core
@@ -139,10 +139,13 @@ pluggy==1.6.0
     # via
     #   pytest
     #   pytest-cov
+proto-plus==1.26.1
+    # via google-api-core
 protobuf==6.31.1
     # via
     #   google-api-core
     #   googleapis-common-protos
+    #   proto-plus
     #   streamlit
 psutil==7.0.0
     # via opencensus-ext-azure
@@ -174,12 +177,10 @@ pytest-cov==6.2.1
     # via -r requirements.in
 python-dateutil==2.9.0.post0
     # via pandas
-python-dotenv==1.1.0
+python-dotenv==1.1.1
     # via webdriver-manager
 pytz==2025.2
-    # via
-    #   google-api-core
-    #   pandas
+    # via pandas
 referencing==0.36.2
     # via
     #   jsonschema
@@ -216,8 +217,6 @@ shap==0.48.0
 six==1.17.0
     # via
     #   azure-core
-    #   google-api-core
-    #   google-auth
     #   opencensus
     #   python-dateutil
 slicer==0.0.8
@@ -275,6 +274,3 @@ wsproto==1.2.0
     # via trio-websocket
 xgboost==3.0.2
     # via -r requirements.in
-
-# The following packages are considered to be unsafe in a requirements file:
-# setuptools
