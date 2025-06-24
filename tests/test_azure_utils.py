@@ -1,5 +1,4 @@
 # tests/test_azure_utils.py
-import pytest
 import pandas as pd
 from unittest.mock import patch, MagicMock, mock_open
 import os
