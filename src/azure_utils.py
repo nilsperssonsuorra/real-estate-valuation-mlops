@@ -22,7 +22,7 @@ def download_df_from_blob(container_name: str, blob_name: str) -> pd.DataFrame:
     from io import StringIO
     blob_client = BLOB_SERVICE_CLIENT.get_blob_client(container=container_name, blob=blob_name)
     try:
-        downloader = blob_client.download_blob(max_connections=1)
+        downloader = blob_client.download_blob()
         blob_contents = downloader.readall()
         return pd.read_csv(StringIO(blob_contents.decode('utf-8')))
     except ResourceNotFoundError:
@@ -49,7 +49,7 @@ def download_file_from_blob(container_name: str, blob_name: str, local_file_path
     """Downloads a blob to a local file path."""
     blob_client = BLOB_SERVICE_CLIENT.get_blob_client(container=container_name, blob=blob_name)
     with open(local_file_path, "wb") as download_file:
-        download_file.write(blob_client.download_blob(max_connections=1).readall())
+        download_file.write(blob_client.download_blob().readall())
     print(f"Successfully downloaded {blob_name} to {local_file_path}")
 
 # --- Specialized Joblib/JSON Functions for convenience ---
